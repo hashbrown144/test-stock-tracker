@@ -1,43 +1,4 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -55,8 +16,8 @@
 
     // Mock currency conversion rate (AUD to USD and vice versa)
     const mockExchangeRate = {
-      AUDtoUSD: 0.67, // 1 AUD = 0.67 USD
-      USDtoAUD: 1 / 0.67 // 1 USD = 1.4925 AUD
+      AUDtoUSD: 0.67,
+      USDtoAUD: 1 / 0.67
     };
 
     function App() {
@@ -72,31 +33,26 @@
       const [portfolio, setPortfolio] = useState({});
       const [currentPrices, setCurrentPrices] = useState({});
 
-      // Load transactions from localStorage on mount
       useEffect(() => {
         const savedTransactions = JSON.parse(localStorage.getItem('transactions')) || [];
         setTransactions(savedTransactions);
         updatePortfolio(savedTransactions);
       }, []);
 
-      // Update localStorage and portfolio when transactions change
       useEffect(() => {
         localStorage.setItem('transactions', JSON.stringify(transactions));
         updatePortfolio(transactions);
       }, [transactions]);
 
-      // Mock function to fetch current stock prices (in USD)
       const fetchCurrentPrice = (symbol) => {
-        // Replace with real API call in production (e.g., Alpha Vantage)
         const mockPrices = {
           AAPL: 150.00,
           TSLA: 700.00,
           GOOGL: 2800.00
         };
-        return mockPrices[symbol] || 100.00; // Default price if symbol not found
+        return mockPrices[symbol] || 100.00;
       };
 
-      // Update portfolio based on transactions
       const updatePortfolio = (trans) => {
         const newPortfolio = {};
         trans.forEach(t => {
@@ -117,14 +73,12 @@
           newPortfolio[symbol].transactions.push(t);
         });
 
-        // Remove stocks with zero quantity
         Object.keys(newPortfolio).forEach(symbol => {
           if (newPortfolio[symbol].quantity <= 0) {
             delete newPortfolio[symbol];
           }
         });
 
-        // Update current prices
         const updatedPrices = {};
         Object.keys(newPortfolio).forEach(symbol => {
           updatedPrices[symbol] = fetchCurrentPrice(symbol);
@@ -133,13 +87,11 @@
         setPortfolio(newPortfolio);
       };
 
-      // Handle input changes
       const handleInputChange = (e) => {
         const { name, value } = e.target;
         setNewTransaction({ ...newTransaction, [name]: value });
       };
 
-      // Add new transaction
       const addTransaction = (e) => {
         e.preventDefault();
         if (newTransaction.symbol && newTransaction.quantity && newTransaction.price) {
@@ -160,7 +112,6 @@
         }
       };
 
-      // Calculate portfolio performance
       const calculatePerformance = () => {
         let totalValueAUD = 0;
         let totalCostAUD = 0;
@@ -178,8 +129,6 @@
       return (
         <div className="container mx-auto p-4">
           <h1 className="text-2xl font-bold mb-4">Stock Portfolio Tracker</h1>
-          
-          {/* Add Transaction Form */}
           <div className="mb-6 p-4 bg-gray-100 rounded">
             <h2 className="text-lg font-semibold mb-2">Add Transaction</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -244,8 +193,6 @@
               </button>
             </div>
           </div>
-
-          {/* Portfolio Summary */}
           <div className="mb-6 p-4 bg-gray-100 rounded">
             <h2 className="text-lg font-semibold mb-2">Portfolio Summary</h2>
             <p>Total Value (AUD): ${totalValueAUD.toFixed(2)}</p>
@@ -254,8 +201,6 @@
               ${gainLoss.toFixed(2)}
             </span></p>
           </div>
-
-          {/* Portfolio Table */}
           <div className="mb-6">
             <h2 className="text-lg font-semibold mb-2">Holdings</h2>
             <table className="w-full border-collapse">
@@ -292,8 +237,6 @@
               </tbody>
             </table>
           </div>
-
-          {/* Transaction History */}
           <div>
             <h2 className="text-lg font-semibold mb-2">Transaction History</h2>
             <table className="w-full border-collapse">
