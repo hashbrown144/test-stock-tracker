@@ -1,0 +1,336 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stock Portfolio Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/babel-standalone@7.24.7/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // Mock currency conversion rate (AUD to USD and vice versa)
+    const mockExchangeRate = {
+      AUDtoUSD: 0.67, // 1 AUD = 0.67 USD
+      USDtoAUD: 1 / 0.67 // 1 USD = 1.4925 AUD
+    };
+
+    function App() {
+      const [transactions, setTransactions] = useState([]);
+      const [newTransaction, setNewTransaction] = useState({
+        symbol: '',
+        quantity: '',
+        price: '',
+        currency: 'AUD',
+        type: 'buy',
+        date: new Date().toISOString().split('T')[0]
+      });
+      const [portfolio, setPortfolio] = useState({});
+      const [currentPrices, setCurrentPrices] = useState({});
+
+      // Load transactions from localStorage on mount
+      useEffect(() => {
+        const savedTransactions = JSON.parse(localStorage.getItem('transactions')) || [];
+        setTransactions(savedTransactions);
+        updatePortfolio(savedTransactions);
+      }, []);
+
+      // Update localStorage and portfolio when transactions change
+      useEffect(() => {
+        localStorage.setItem('transactions', JSON.stringify(transactions));
+        updatePortfolio(transactions);
+      }, [transactions]);
+
+      // Mock function to fetch current stock prices (in USD)
+      const fetchCurrentPrice = (symbol) => {
+        // Replace with real API call in production (e.g., Alpha Vantage)
+        const mockPrices = {
+          AAPL: 150.00,
+          TSLA: 700.00,
+          GOOGL: 2800.00
+        };
+        return mockPrices[symbol] || 100.00; // Default price if symbol not found
+      };
+
+      // Update portfolio based on transactions
+      const updatePortfolio = (trans) => {
+        const newPortfolio = {};
+        trans.forEach(t => {
+          const symbol = t.symbol.toUpperCase();
+          if (!newPortfolio[symbol]) {
+            newPortfolio[symbol] = { quantity: 0, totalCostAUD: 0, transactions: [] };
+          }
+          const quantity = parseFloat(t.quantity);
+          const priceAUD = t.currency === 'USD' ? t.price * mockExchangeRate.USDtoAUD : t.price;
+          const costAUD = quantity * priceAUD;
+          if (t.type === 'buy') {
+            newPortfolio[symbol].quantity += quantity;
+            newPortfolio[symbol].totalCostAUD += costAUD;
+          } else {
+            newPortfolio[symbol].quantity -= quantity;
+            newPortfolio[symbol].totalCostAUD -= costAUD * (newPortfolio[symbol].totalCostAUD / (newPortfolio[symbol].quantity + quantity));
+          }
+          newPortfolio[symbol].transactions.push(t);
+        });
+
+        // Remove stocks with zero quantity
+        Object.keys(newPortfolio).forEach(symbol => {
+          if (newPortfolio[symbol].quantity <= 0) {
+            delete newPortfolio[symbol];
+          }
+        });
+
+        // Update current prices
+        const updatedPrices = {};
+        Object.keys(newPortfolio).forEach(symbol => {
+          updatedPrices[symbol] = fetchCurrentPrice(symbol);
+        });
+        setCurrentPrices(updatedPrices);
+        setPortfolio(newPortfolio);
+      };
+
+      // Handle input changes
+      const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setNewTransaction({ ...newTransaction, [name]: value });
+      };
+
+      // Add new transaction
+      const addTransaction = (e) => {
+        e.preventDefault();
+        if (newTransaction.symbol && newTransaction.quantity && newTransaction.price) {
+          setTransactions([...transactions, {
+            ...newTransaction,
+            quantity: parseFloat(newTransaction.quantity),
+            price: parseFloat(newTransaction.price),
+            symbol: newTransaction.symbol.toUpperCase()
+          }]);
+          setNewTransaction({
+            symbol: '',
+            quantity: '',
+            price: '',
+            currency: 'AUD',
+            type: 'buy',
+            date: new Date().toISOString().split('T')[0]
+          });
+        }
+      };
+
+      // Calculate portfolio performance
+      const calculatePerformance = () => {
+        let totalValueAUD = 0;
+        let totalCostAUD = 0;
+        Object.keys(portfolio).forEach(symbol => {
+          const currentPriceUSD = currentPrices[symbol] || 100;
+          const currentPriceAUD = currentPriceUSD * mockExchangeRate.USDtoAUD;
+          totalValueAUD += portfolio[symbol].quantity * currentPriceAUD;
+          totalCostAUD += portfolio[symbol].totalCostAUD;
+        });
+        return { totalValueAUD, totalCostAUD, gainLoss: totalValueAUD - totalCostAUD };
+      };
+
+      const { totalValueAUD, totalCostAUD, gainLoss } = calculatePerformance();
+
+      return (
+        <div className="container mx-auto p-4">
+          <h1 className="text-2xl font-bold mb-4">Stock Portfolio Tracker</h1>
+          
+          {/* Add Transaction Form */}
+          <div className="mb-6 p-4 bg-gray-100 rounded">
+            <h2 className="text-lg font-semibold mb-2">Add Transaction</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <input
+                type="text"
+                name="symbol"
+                value={newTransaction.symbol}
+                onChange={handleInputChange}
+                placeholder="Stock Symbol (e.g., AAPL)"
+                className="p-2 border rounded"
+              />
+              <input
+                type="number"
+                name="quantity"
+                value={newTransaction.quantity}
+                onChange={handleInputChange}
+                placeholder="Quantity"
+                className="p-2 border rounded"
+                min="0"
+                step="0.01"
+              />
+              <input
+                type="number"
+                name="price"
+                value={newTransaction.price}
+                onChange={handleInputChange}
+                placeholder="Price per share"
+                className="p-2 border rounded"
+                min="0"
+                step="0.01"
+              />
+              <select
+                name="currency"
+                value={newTransaction.currency}
+                onChange={handleInputChange}
+                className="p-2 border rounded"
+              >
+                <option value="AUD">AUD</option>
+                <option value="USD">USD</option>
+              </select>
+              <select
+                name="type"
+                value={newTransaction.type}
+                onChange={handleInputChange}
+                className="p-2 border rounded"
+              >
+                <option value="buy">Buy</option>
+                <option value="sell">Sell</option>
+              </select>
+              <input
+                type="date"
+                name="date"
+                value={newTransaction.date}
+                onChange={handleInputChange}
+                className="p-2 border rounded"
+              />
+              <button
+                onClick={addTransaction}
+                className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                Add Transaction
+              </button>
+            </div>
+          </div>
+
+          {/* Portfolio Summary */}
+          <div className="mb-6 p-4 bg-gray-100 rounded">
+            <h2 className="text-lg font-semibold mb-2">Portfolio Summary</h2>
+            <p>Total Value (AUD): ${totalValueAUD.toFixed(2)}</p>
+            <p>Total Cost (AUD): ${totalCostAUD.toFixed(2)}</p>
+            <p>Gain/Loss (AUD): <span className={gainLoss >= 0 ? "text-green-500" : "text-red-500"}>
+              ${gainLoss.toFixed(2)}
+            </span></p>
+          </div>
+
+          {/* Portfolio Table */}
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold mb-2">Holdings</h2>
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-gray-200">
+                  <th className="p-2 border">Symbol</th>
+                  <th className="p-2 border">Quantity</th>
+                  <th className="p-2 border">Avg Cost (AUD)</th>
+                  <th className="p-2 border">Current Price (AUD)</th>
+                  <th className="p-2 border">Current Value (AUD)</th>
+                  <th className="p-2 border">Gain/Loss (AUD)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.keys(portfolio).map(symbol => {
+                  const avgCostAUD = portfolio[symbol].totalCostAUD / portfolio[symbol].quantity;
+                  const currentPriceUSD = currentPrices[symbol] || 100;
+                  const currentPriceAUD = currentPriceUSD * mockExchangeRate.USDtoAUD;
+                  const currentValue = portfolio[symbol].quantity * currentPriceAUD;
+                  const gainLoss = currentValue - portfolio[symbol].totalCostAUD;
+                  return (
+                    <tr key={symbol}>
+                      <td className="p-2 border">{symbol}</td>
+                      <td className="p-2 border">{portfolio[symbol].quantity.toFixed(2)}</td>
+                      <td className="p-2 border">${avgCostAUD.toFixed(2)}</td>
+                      <td className="p-2 border">${currentPriceAUD.toFixed(2)}</td>
+                      <td className="p-2 border">${currentValue.toFixed(2)}</td>
+                      <td className={`p-2 border ${gainLoss >= 0 ? "text-green-500" : "text-red-500"}`}>
+                        ${gainLoss.toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Transaction History */}
+          <div>
+            <h2 className="text-lg font-semibold mb-2">Transaction History</h2>
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-gray-200">
+                  <th className="p-2 border">Date</th>
+                  <th className="p-2 border">Symbol</th>
+                  <th className="p-2 border">Type</th>
+                  <th className="p-2 border">Quantity</th>
+                  <th className="p-2 border">Price</th>
+                  <th className="p-2 border">Currency</th>
+                  <th className="p-2 border">Cost/Value (AUD)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.map((t, index) => {
+                  const costAUD = t.currency === 'USD' ? t.quantity * t.price * mockExchangeRate.USDtoAUD : t.quantity * t.price;
+                  return (
+                    <tr key={index}>
+                      <td className="p-2 border">{t.date}</td>
+                      <td className="p-2 border">{t.symbol}</td>
+                      <td className="p-2 border">{t.type.charAt(0).toUpperCase() + t.type.slice(1)}</td>
+                      <td className="p-2 border">{t.quantity.toFixed(2)}</td>
+                      <td className="p-2 border">${t.price.toFixed(2)}</td>
+                      <td className="p-2 border">{t.currency}</td>
+                      <td className="p-2 border">${costAUD.toFixed(2)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
